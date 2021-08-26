@@ -8,13 +8,7 @@
 #include <unistd.h> // pipe, execl, dup2, write, read
 #include <signal.h> // SIG* constants
 
-/**
- * @param[out]  inpipe_fd     File descriptor of pipe to stdin
- * @param[out]  outpipe_fd    File descriptor of pipe from stdout+stderr
- *
- * @return Process PID
- */
-int twoPipesExec(const char* cmd, int& inpipe_fd, int& outpipe_fd)
+int twoPipesExec(char* const* argv, int& inpipe_fd, int& outpipe_fd)
 {
   int inpipe_fds[2];
   int outpipe_fds[2];
@@ -30,10 +24,10 @@ int twoPipesExec(const char* cmd, int& inpipe_fd, int& outpipe_fd)
     dup2(inpipe_fds[1], STDOUT_FILENO);
     dup2(inpipe_fds[1], STDERR_FILENO);
 
-    //ask kernel to deliver SIGTERM in case the parent dies
+    // Ask kernel to deliver SIGTERM in case the parent dies
     prctl(PR_SET_PDEATHSIG, SIGTERM);
 
-    execl(cmd, cmd, (char*) NULL);
+    execvp(argv[0], argv);
     // Nothing below this line should be executed by child process. If so, 
     // it means that the execl function wasn't successfull, so lets exit:
     perror("ERROR failed starting child process");
@@ -82,9 +76,14 @@ int readTimeout(int fildes, char* buf, int len, double timeout_sec)
 
 //==============================================
 
-PipedProcess::PipedProcess(const char* cmd)
+PipedProcess::PipedProcess(char* const cmd)
 {
-  m_pid = twoPipesExec(cmd, m_inpipe_fd, m_outpipe_fd);
+  char* argv[] = {cmd, NULL};
+  m_pid = twoPipesExec(argv, m_inpipe_fd, m_outpipe_fd);
+}
+PipedProcess::PipedProcess(int argc, char** argv)
+{
+  m_pid = twoPipesExec(argv, m_inpipe_fd, m_outpipe_fd);
 }
 
 int PipedProcess::write(const char* buf, int buflen)

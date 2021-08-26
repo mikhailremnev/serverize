@@ -1,13 +1,25 @@
 #ifndef PIPED_PROCESS
 #define PIPED_PROCESS
 
-int twoPipesExec(const char* cmd, int& inpipe_fd, int& outpipe_fd);
+/**
+ * @param[out]  inpipe_fd     File descriptor of pipe to stdin
+ * @param[out]  outpipe_fd    File descriptor of pipe from stdout+stderr
+ *
+ * @return Process PID
+ */
+int twoPipesExec(char* const* argv, int& inpipe_fd, int& outpipe_fd);
 int readTimeout(int fildes, char* buf, int len, double timeout_sec);
 
 class PipedProcess
 {
 public:
-  PipedProcess(const char* cmd);
+  PipedProcess(char* const cmd);
+  /**
+   * argv[argc] is guaranteed to be NULL, as per section 5.1.2.2.1 of C standard
+   * ("The New C Standard" book), so you can just pass shifted argv from main,
+   * if that's possible
+   */
+  PipedProcess(int argc, char** argv);
 
   /** Write to stdin */
   int write(const char* buf, int buflen);

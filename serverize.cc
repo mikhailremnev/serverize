@@ -1,16 +1,12 @@
-#include <string.h>
-#include <sys/stat.h> // umask
-#include <netinet/in.h> // htons
-#include <unistd.h>
-
-#include <sys/select.h> // select
-#include <sys/prctl.h> // prctl
-
 #include <errno.h> // errno
-
-#include <signal.h> // SIG* constants
-
 #include <iostream>
+#include <netinet/in.h> // htons
+#include <signal.h> // SIG* constants
+#include <string.h>
+#include <sys/prctl.h> // prctl
+#include <sys/select.h> // select
+#include <sys/stat.h> // umask
+#include <unistd.h>
 
 #include "piped_process.h"
 
@@ -20,6 +16,13 @@ void error(const char *msg)
   exit(1);
 }
 
+/**
+ * This server sends the input from stdin to the connected client
+ * and prints clients input to stdout.
+ *
+ * By linking server's stdin and stdout to another process, it is
+ * possible to get remote shell.
+ */
 class SocketServer
 {
 public:
@@ -121,14 +124,14 @@ private:
   struct sockaddr_in serv_addr, cli_addr;
 };
 
-void startServer(int port)
+void startServer(int port, int argc, char** argv)
 {
   //== Init server
   SocketServer server(port);
   server.init();
 
   //== Start serverized process
-  PipedProcess proc("/usr/bin/bash");
+  PipedProcess proc(argc, argv);
   dup2(proc.getStdinPipe(), STDOUT_FILENO);
   dup2(proc.getStdoutPipe(), STDIN_FILENO);
 
@@ -137,7 +140,7 @@ void startServer(int port)
 }
 
 // From https://stackoverflow.com/questions/17954432/creating-a-daemon-in-linux/17955149
-void startDaemon(int port)
+void startDaemon(int port, int argc, char** argv)
 {
   pid_t pid;
 
@@ -158,7 +161,7 @@ void startDaemon(int port)
   signal(SIGCHLD, SIG_IGN);
   signal(SIGHUP, SIG_IGN);
 
-  /* Fork off for the second time*/
+  /* Fork off for the second time */
   pid = fork();
 
   /* An error occurred */
@@ -183,7 +186,12 @@ void startDaemon(int port)
   /* Open the log file */
   // openlog ("firstdaemon", LOG_PID, LOG_DAEMON);
   
-  startServer(port);
+  startServer(port, argc, argv);
+}
+
+void showHelp(const char* cmd_name)
+{
+  printf("Usage: %s [-p port] [-d] command_name\n", cmd_name);
 }
 
 // Init socket server.
@@ -192,25 +200,42 @@ int main(int argc, char** argv)
   bool daemon = false;
   int port = 1234;
 
-  if (argc >= 2) {
-    for (int i = 1; i < argc; i++) {
-      std::string arg = argv[i];
-      if (arg == "-d") {
-        daemon = true;
-      } else if (arg == "-p") {
-        i++;
-        port = atoi(argv[i]);
-      } else {
-        printf("Usage: %s [-p port] [-d]\n", argv[0]);
-        return 1;
-      }
+  if (argc < 2) {
+    showHelp(argv[0]);
+    return 1;
+  }
+
+  // argc and argv for a secondary process
+  int new_argc = 0;
+  char** new_argv = 0;
+
+  for (int i = 1; i < argc; i++) {
+    std::string arg = argv[i];
+    if (arg[0] != '-') {
+      new_argc = argc - i;
+      new_argv = argv + i;
+      break;
+    }
+    if (arg == "-d") {
+      daemon = true;
+    } else if (arg == "-p") {
+      i++;
+      port = atoi(argv[i]);
+    } else if (arg.find("help") == std::string::npos) {
+      showHelp(argv[0]);
+      return 1;
     }
   }
 
+  if (new_argc <= 0) {
+    showHelp(argv[0]);
+    return 1;
+  }
+
   if (daemon) {
-    startDaemon(port);
+    startDaemon(port, new_argc, new_argv);
   } else {
-    startServer(port);
+    startServer(port, new_argc, new_argv);
   }
 
   return 0;
